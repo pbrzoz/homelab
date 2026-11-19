@@ -1,0 +1,40 @@
+services:
+  stirling-pdf:
+    image: docker.stirlingpdf.com/stirlingtools/stirling-pdf:latest # fallback: stirlingtools/stirling-pdf:latest (Docker Hub)
+    container_name: pdf
+    restart: unless-stopped
+    networks:
+      - proxy
+    volumes:
+      - ./data/trainingData:/usr/share/tessdata #Required for extra OCR languages
+      - ./data/extraConfigs:/configs
+    environment:
+      - SECURITY_ENABLELOGIN=false
+      - SYSTEM_DEFAULTLOCALE=${DEFAULTLOCALE}
+      - SYSTEM_ENABLEANALYTICS=false
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 4G # docs suggest 4 GB for the 'latest' image
+        reservations:
+          cpus: "0.25"
+          memory: 512M
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.stirling-pdf.entrypoints=https"
+      - "traefik.http.routers.stirling-pdf.middlewares=default-chain@file,authentik@file"
+      - "traefik.http.services.stirling-pdf.loadbalancer.server.port=8080"
+networks:
+  proxy:
+    external: true

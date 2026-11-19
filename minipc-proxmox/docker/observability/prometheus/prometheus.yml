@@ -1,0 +1,137 @@
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  evaluation_interval: 30s
+  external_labels:
+    host: docker01
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          host: docker01
+
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          host: docker01
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+        labels:
+          host: docker01
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: "container_(cpu_usage_seconds_total|cpu_cfs_throttled_seconds_total|cpu_cfs_throttled_periods_total|cpu_cfs_periods_total|memory_working_set_bytes|memory_usage_bytes|memory_rss|memory_cache|memory_failcnt|spec_memory_limit_bytes|spec_cpu_quota|spec_cpu_period|network_receive_bytes_total|network_transmit_bytes_total|network_receive_errors_total|network_transmit_errors_total|last_seen|start_time_seconds|processes)|machine_(memory_bytes|cpu_cores)"
+        action: keep
+      - source_labels: [__name__, name]
+        regex: "container_.*;"
+        action: drop
+
+  - job_name: traefik
+    static_configs:
+      - targets: ["traefik:8080"]
+        labels:
+          host: docker01
+
+  - job_name: crowdsec
+    static_configs:
+      - targets: ["crowdsec:6060"]
+        labels:
+          host: docker01
+
+  - job_name: authentik
+    static_configs:
+      - targets: ["authentik_server:9300"]
+        labels:
+          host: docker01
+
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+        labels:
+          host: docker01
+
+  - job_name: alloy
+    static_configs:
+      - targets: ["alloy:12345"]
+        labels:
+          host: docker01
+
+  - job_name: blackbox
+    static_configs:
+      - targets: ["blackbox:9115"]
+        labels:
+          host: docker01
+
+
+  - job_name: node-nas
+    static_configs:
+      - targets: ["NAS_IP:9100"]
+        labels:
+          host: nas
+  
+  - job_name: smart-nas
+    static_configs:
+      - targets: ["NAS_IP:9633"]
+        labels:
+          host: nas
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: "smartctl_devices?|smartctl_device_(attribute|smart_status|smartctl_exit_status|temperature|power_on_seconds|power_cycle_count|capacity_bytes|interface_speed|bytes_read|bytes_written|percentage_used|available_spare|available_spare_threshold|critical_warning|media_errors|num_err_log_entries|error_log_count)"
+        action: keep
+      - source_labels: [__name__, attribute_value_type]
+        regex: "smartctl_device_attribute;(value|worst|thresh)"
+        action: drop
+      - source_labels: [__name__, attribute_name]
+        regex: "smartctl_device_attribute;(Unknown_Attribute|Temperature_Celsius)"
+        action: drop
+
+  - job_name: cadvisor-nas
+    static_configs:
+      - targets: ["NAS_IP:9102"]
+        labels:
+          host: nas
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: "container_(cpu_usage_seconds_total|cpu_cfs_throttled_seconds_total|cpu_cfs_throttled_periods_total|cpu_cfs_periods_total|memory_working_set_bytes|memory_usage_bytes|memory_rss|memory_cache|memory_failcnt|spec_memory_limit_bytes|spec_cpu_quota|spec_cpu_period|network_receive_bytes_total|network_transmit_bytes_total|network_receive_errors_total|network_transmit_errors_total|last_seen|start_time_seconds|processes)|machine_(memory_bytes|cpu_cores)"
+        action: keep
+      - source_labels: [__name__, name]
+        regex: "container_.*;"
+        action: drop
+
+  - job_name: blackbox_http
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://auth.DOMAIN.TLD/
+          - https://grafana.DOMAIN.TLD/
+          - https://vaultwarden.DOMAIN.TLD/
+          - https://mealie.DOMAIN.TLD/
+          - https://karakeep.DOMAIN.TLD/
+          - https://homepage.DOMAIN.TLD/
+          - https://searxng.DOMAIN.TLD/
+          - https://changedetection.DOMAIN.TLD/
+          - https://pdf.DOMAIN.TLD/
+          - https://it-tools.DOMAIN.TLD/
+          - https://dockhand.DOMAIN.TLD/
+        labels:
+          scope: local
+      - targets:
+          - https://jellyfin.DOMAIN.TLD/
+          - https://nextcloud.DOMAIN.TLD/
+          - https://homeassistant.DOMAIN.TLD/
+        labels:
+          scope: remote
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115

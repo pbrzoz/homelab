@@ -1,0 +1,62 @@
+---
+# For configuration options and examples, please see:
+# https://gethomepage.dev/latest/configs/bookmarks
+
+- Developer:
+    - Github:
+        - abbr: GH
+          icon: github.png
+          href: https://github.com/
+    - Claude:
+        - abbr: CL
+          icon: claude-ai.png
+          href: https://claude.ai/
+    - ChatGPT:
+        - abbr: GP
+          icon: chatgpt.png
+          href: https://chatgpt.com/
+    - Google Gemini:
+        - abbr: GE
+          icon: google-gemini.png
+          href: https://gemini.google.com/
+
+- Social:
+    - Reddit:
+        - abbr: RE
+          icon: reddit.png
+          href: https://reddit.com/
+    - Instagram:
+        - abbr: IG
+          icon: instagram.png
+          href: https://www.instagram.com/
+    - Facebook:
+        - abbr: FB
+          icon: facebook.png
+          href: https://www.facebook.com/
+
+- Entertainment:
+    - YouTube:
+        - abbr: YT
+          icon: youtube.png
+          href: https://youtube.com/
+    - Netflix:
+        - abbr: NF
+          icon: netflix.png
+          href: https://www.netflix.com/
+    - Disney+:
+        - abbr: D+
+          icon: disney-plus.png
+          href: https://www.disneyplus.com/
+
+- Other:
+    - Homepage:
+      - icon: homepage.png
+        href: https://gethomepage.dev/
+    - Steam Store:
+        - abbr: ST
+          icon: steam.png
+          href: https://store.steampowered.com/
+    - PlayStation Store:
+        - abbr: PS
+          icon: playstation.png
+          href: https://store.playstation.com/

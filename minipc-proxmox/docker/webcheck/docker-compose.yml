@@ -1,0 +1,37 @@
+services:
+  web-check:
+    image: lissy93/web-check:latest
+    container_name: webcheck
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=256m # screenshot API writes temp PNGs here
+      - /root/.cache:mode=1777
+      - /root/.config:mode=1777 # chromium's default profile/cache dirs (runs as root)
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
+          pids: 256
+        reservations:
+          cpus: "0.10"
+          memory: 128M
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.webcheck.entrypoints=https"
+      - "traefik.http.middlewares.webcheck-ratelimit.ratelimit.average=5"
+      - "traefik.http.middlewares.webcheck-ratelimit.ratelimit.burst=40"
+      - "traefik.http.middlewares.webcheck-ratelimit.ratelimit.period=1s"
+      - "traefik.http.middlewares.webcheck-ratelimit.ratelimit.sourcecriterion.ipstrategy.depth=1"
+      - "traefik.http.routers.webcheck.middlewares=crowdsec@file,security-headers@file,webcheck-ratelimit,compress@file,local-whitelist@file,authentik@file"
+      - "traefik.http.services.webcheck.loadbalancer.server.port=3000"
+networks:
+  proxy:
+    external: true

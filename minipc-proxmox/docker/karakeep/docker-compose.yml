@@ -1,0 +1,92 @@
+services:
+  web:
+    image: ghcr.io/karakeep-app/karakeep:${KARAKEEP_VERSION:-release}
+    container_name: karakeep
+    restart: unless-stopped
+    volumes:
+      - ./data/data:/data 
+    env_file:
+      - .env
+    environment:
+      MEILI_ADDR: http://meilisearch:7700
+      BROWSER_WEB_URL: http://chrome:9222      
+      DATA_DIR: /data
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
+      OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
+      OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
+      OAUTH_WELLKNOWN_URL: ${OAUTH_WELLKNOWN_URL}
+      OAUTH_PROVIDER_NAME: authentik
+      OAUTH_ALLOW_DANGEROUS_EMAIL_ACCOUNT_LINKING: true
+      # Optional: You can add this if you only want to allow login with Authentik
+      DISABLE_PASSWORD_AUTH: true
+      # Optional but highly recommended:
+      DISABLE_SIGNUPS: true
+      # Optionally automatically sign in with authentik:
+      OAUTH_AUTO_REDIRECT: true
+    depends_on:
+      meilisearch:
+        condition: service_healthy
+      chrome:
+        condition: service_started
+    networks:
+      - proxy
+      - karakeep_browser
+      - karakeep_search
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+    labels:
+      - "traefik.enable=true"      
+      - "traefik.http.routers.karakeep.entrypoints=https"
+      - "traefik.http.routers.karakeep.middlewares=default-chain@file"
+      - "traefik.http.services.karakeep.loadbalancer.server.port=3000"
+  chrome:
+    image: ghcr.io/karakeep-app/karakeep-chrome:release
+    restart: unless-stopped
+    init: true
+    environment:
+      HOME: /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - karakeep_browser
+    command:
+      - --disable-gpu
+      - --disable-dev-shm-usage
+      - --hide-scrollbars
+      - --disable-blink-features=AutomationControlled
+      - --window-size=1440,900
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.41.0
+    container_name: karakeep-meilisearch
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MEILI_NO_ANALYTICS: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - karakeep_search
+    volumes:
+      - ./data/meili_data:/meili_data
+
+networks:
+  karakeep_browser:
+  karakeep_search:
+  proxy:
+    external: true

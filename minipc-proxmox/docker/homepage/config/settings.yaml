@@ -1,0 +1,44 @@
+---
+# For configuration options and examples, please see:
+# https://gethomepage.dev/latest/configs/settings
+
+providers:
+  openweathermap: openweathermapapikey
+  weatherapi: weatherapiapikey
+
+theme: dark
+color: zinc
+target: _self
+hideVersion: true
+headerStyle: clean
+
+quicklaunch:
+  searchDescriptions: true
+  hideInternetSearch: true
+  showSearchSuggestions: true
+  hideVisitURL: true
+  provider: duckduckgo
+  target: _self
+  suggestionUrl: https://duckduckgo.com/ac/?type=list&q=
+
+layout:
+  Services:
+    header: true
+    style: row
+    columns: 4
+  Apps:
+    header: true
+    style: row
+    columns: 2
+    Other:
+      style: row
+      columns: 3
+    Tools:
+      style: row
+      columns: 3
+    Media:
+      style: row
+      columns: 4
+    System:
+      style: row
+      columns: 5

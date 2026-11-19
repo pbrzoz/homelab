@@ -1,0 +1,166 @@
+services:
+  dockerproxy:
+    image: tecnativa/docker-socket-proxy
+    container_name: dockerproxy
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.10"
+          memory: 64M
+        reservations:
+          cpus: "0.05"   
+          memory: 32M
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:2375/_ping"]   # confirm the proxy is accepting connections
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run
+    environment:
+      - CONTAINERS=1   # allow GET /containers - Traefik reads container labels from this endpoint
+      - EVENTS=1       # allow GET /events - Traefik watches for container start/stop to update routes
+      - NETWORKS=1     # allow GET /networks - Traefik needs this to resolve which network a container is on
+      - PING=1         # allow GET /_ping - used by Traefik and the healthcheck
+      - VERSION=1      # allow GET /version - Traefik checks Docker API version compatibility on startup
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - socket_net
+
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.7.8
+    container_name: crowdsec
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+        reservations:
+          cpus: "0.10"
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "cscli", "lapi", "status"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    user: "${UID:-1000}:${GID:-1000}"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+    environment:
+      UID: "${UID-1000}"
+      GID: "${GID-1000}"
+      COLLECTIONS: ${CROWDSEC_COLLECTIONS}
+      APPSEC_RULES: crowdsecurity/base-config
+      TZ: ${TIMEZONE}
+    volumes:
+      - ./crowdsec/data/acquis.yaml:/etc/crowdsec/acquis.yaml:ro
+      - ./crowdsec/data/db:/var/lib/crowdsec/data/
+      - ./crowdsec/data/config:/etc/crowdsec/
+      - ${LOG_PATH}/crowdsec:/var/log/crowdsec:ro
+      - ${LOG_PATH}/traefik:/var/log/traefik/:ro
+    networks:
+      - crowdsec_net
+      - crowdsec_outbound
+      - metrics
+
+  traefik:
+    image: traefik:3.7.17
+    container_name: traefik
+    depends_on:
+      dockerproxy:
+        condition: service_healthy
+      crowdsec:
+        condition: service_healthy
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '1.00'
+          memory: 256M
+        reservations:
+          cpus: "0.10"
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    user: "${UID:-1000}:${GID:-1000}"
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+    environment:
+      DUCKDNS_TOKEN_FILE: /run/secrets/duckdns_token
+      TZ: ${TIMEZONE:-UTC}
+    secrets:
+      - duckdns_token
+      - dashboard_credentials
+      - crowdsec_bouncer_lapi_key
+    volumes:
+      - ${LOG_PATH}/traefik:/var/log/traefik
+      - ./traefik/data/acme.json:/acme.json
+      - ./traefik/data/traefik.yml:/traefik.yml:ro
+      - ./traefik/data/dynamic:/etc/traefik/dynamic:ro
+      - ./traefik/plugins:/plugins-storage
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.entrypoints=https"
+      - "traefik.http.routers.traefik.rule=Host(`traefik-dashboard.${DOMAIN}`)"
+      - "traefik.http.routers.traefik.middlewares=dashboard-allowlist@file, default-chain@file, traefik-auth@file"
+      - "traefik.http.routers.traefik.service=api@internal"
+    ports:
+      - 80:80     #HTTP
+      - 443:443   #HTTPS
+    networks:
+      socket_net:
+      proxy:
+        aliases:
+          # Lets containers on "proxy" reach the Homepage dashboard directly
+          - traefik-dashboard.${DOMAIN}
+      crowdsec_net:
+      metrics:
+
+secrets:
+  duckdns_token:
+    file: ./secrets/duckdns_token
+  crowdsec_bouncer_lapi_key:
+    file: ./secrets/crowdsec_bouncer_lapi_key
+  dashboard_credentials:
+    file: ./secrets/dashboard_credentials
+
+networks:
+  socket_net:
+    internal: true
+  crowdsec_net:
+    internal: true
+  crowdsec_outbound:
+    internal: false
+  metrics:
+    external: true
+  proxy:
+    external: true

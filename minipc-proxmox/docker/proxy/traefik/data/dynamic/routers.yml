@@ -1,0 +1,70 @@
+http:
+  routers:
+    homeassistant:
+      entryPoints:
+        - "https"
+      rule: "Host(`homeassistant.DOMAIN.TLD`)"
+      middlewares:
+        - local-whitelist
+        - default-chain@file
+      service: homeassistant
+    proxmox:
+      entryPoints:
+        - "https"
+      rule: "Host(`proxmox.DOMAIN.TLD`)"
+      middlewares:
+        - local-whitelist
+        - default-chain@file
+      service: proxmox
+    jellyfin:
+      entryPoints:
+        - "https"
+      rule: "Host(`jellyfin.DOMAIN.TLD`)"
+      middlewares:
+        - stream-chain@file
+      service: jellyfin
+    nextcloud:
+      entryPoints:
+        - "https"
+      rule: "Host(`nextcloud.DOMAIN.TLD`)"
+      middlewares:
+        - default-chain@file
+      service: nextcloud
+    muxarr:
+      entryPoints:
+        - "https"
+      rule: "Host(`muxarr.DOMAIN.TLD`)"
+      middlewares:
+        - local-whitelist
+        - default-chain@file
+      service: muxarr
+    romm:
+      entryPoints:
+        - "https"
+      rule: "Host(`romm.DOMAIN.TLD`)"
+      middlewares:
+        - default-chain@file
+      service: romm
+    navidrome:
+      entryPoints:
+        - "https"
+      rule: "Host(`navidrome.DOMAIN.TLD`)"
+      middlewares:
+        - default-chain@file
+        - authentik
+      service: navidrome
+    navidrome-rest:
+      entryPoints:
+        - "https"
+      rule: "Host(`navidrome.DOMAIN.TLD`) && PathPrefix(`/rest/`)"
+      priority: 100
+      middlewares:
+        - default-chain@file        
+      service: navidrome
+    calibre:
+      entryPoints:
+        - "https"
+      rule: "Host(`calibre.DOMAIN.TLD`)"
+      middlewares:
+        - default-chain@file
+      service: calibre

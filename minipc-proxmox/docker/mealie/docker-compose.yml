@@ -1,0 +1,66 @@
+services:
+  mealie:
+    image: ghcr.io/mealie-recipes/mealie:latest
+    container_name: mealie
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN  
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1000M
+          pids: 256
+        reservations:
+          cpus: "0.10"
+          memory: 256M
+    volumes:
+      - ./data:/app/data/
+    secrets:
+      - oidc_client_id
+      - oidc_client_secret
+    environment:
+      # Set Backend ENV Variables Here
+      ALLOW_SIGNUP: false
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TIMEZONE}
+      MAX_WORKERS: 1
+      WEB_CONCURRENCY: 1
+      BASE_URL: ${BASE_URL}
+      ALLOW_PASSWORD_LOGIN: false
+      OIDC_AUTH_ENABLED: true
+      OIDC_PROVIDER_NAME: authentik
+      OIDC_CONFIGURATION_URL: ${OIDC_CONFIGURATION_URL}
+      OIDC_CLIENT_ID_FILE: /run/secrets/oidc_client_id
+      OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
+      OIDC_SIGNUP_ENABLED: true
+      OIDC_USER_GROUP: ${OIDC_USER_GROUP}
+      OIDC_ADMIN_GROUP: ${OIDC_ADMIN_GROUP}
+      OIDC_AUTO_REDIRECT: true   # Optional: The login page will be bypassed and you will be sent directly to your Identity Provider.
+      OIDC_REMEMBER_ME: true     # Optional: By setting this value to true, a session will be extended as if "Remember Me" was checked.
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mealie.entrypoints=https"
+      - "traefik.http.routers.mealie.middlewares=default-chain@file"
+      - "traefik.http.services.mealie.loadbalancer.server.port=9000"
+
+secrets:
+  oidc_client_id:
+    file: ./secrets/oidc_client_id
+  oidc_client_secret:
+    file: ./secrets/oidc_client_secret
+
+networks:
+  proxy:
+    external: true

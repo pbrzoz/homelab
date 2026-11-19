@@ -1,0 +1,30 @@
+---
+# For configuration options and examples, please see:
+# https://gethomepage.dev/latest/configs/service-widgets
+
+- resources:
+    cpu: true
+    memory: true
+    disk: /
+    cputemp: true
+    tempmin: 0 # optional, minimum cpu temp
+    tempmax: 100 # optional, maximum cpu temp
+    uptime: true
+    units: metric # only used by cpu temp
+    refresh: 3000 # optional, in ms
+
+- search:
+    provider: duckduckgo
+    target: _self
+    suggestionUrl: https://duckduckgo.com/ac/?type=list&q=
+    showSearchSuggestions: true
+
+- openmeteo:
+    label: Weather # optional
+    latitude:
+    longitude:
+    timezone: UTC # optional
+    units: metric # or imperial
+    cache: 5 # Time in minutes to cache API responses, to stay within limits
+    format: # optional, Intl.NumberFormat options
+      maximumFractionDigits: 1

@@ -1,0 +1,39 @@
+services:
+  calibre-web-automated:
+    image: crocodilestick/calibre-web-automated:latest
+    container_name: calibre
+    environment:
+      # Only change these if you know what you're doing
+      - PUID=${PUID}
+      - PGID=${PGID}
+      # Edit to match your current timezone https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+      - TZ=${TIMEZONE}
+    volumes:
+      - ./data/config:/config
+      # This is an ingest dir, NOT a library one. Anything added here will be automatically added to your library according to the settings you have configured in CWA Settings page. All files placed here are REMOVED AFTER PROCESSING
+      - ${CALIBRE_LIBRARY_PATH}/ingest:/cwa-book-ingest
+      # If you don't have an existing library, CWA will automatically create one at the bind provided here
+      - ${CALIBRE_LIBRARY_PATH}/library:/calibre-library
+    restart: unless-stopped
+    ports:
+      - 8083:8083
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      # Needed by the image's s6-overlay init (running as root/PID1) to chown
+      # bind-mounted volumes to PUID:PGID and drop privileges to the app user.
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+          pids: 512
+        reservations:
+          memory: 256M

@@ -1,0 +1,8 @@
+.env
+.vscode/
+**/secrets/*
+**/acme.json
+**/data/*/
+!**/traefik/data/dynamic/
+!**/romm/data/config/
+**/crowdsec/data/db/

@@ -1,0 +1,19 @@
+services:
+  navidrome:
+    image: deluan/navidrome:latest
+    container_name: navidrome
+    user: ${PUID}:${PGID}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      ND_ENABLEINSIGHTSCOLLECTOR: false
+      ND_EXTAUTH_TRUSTEDSOURCES: "TRAEFIK_IP/32" # traefik container IP on the proxy network
+      ND_EXTAUTH_USERHEADER: "X-authentik-username"
+    volumes:
+      - ./data:/data
+      - ${MEDIA_PATH}:/music:ro
+    ports:
+      - 4533:4533

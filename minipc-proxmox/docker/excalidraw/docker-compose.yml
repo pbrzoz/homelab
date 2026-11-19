@@ -1,0 +1,43 @@
+services:
+  excalidraw:
+    container_name: excalidraw
+    image: excalidraw/excalidraw:latest
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+        reservations:
+          cpus: "0.10"
+          memory: 64M
+    user: "${UID:-1000}:${GID:-1000}"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE # bind port 80 while running as non-root
+    read_only: true
+    #custom heatlhcheck - I had problems with the default. May need to revisit in the future
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx:uid=${UID:-1000},gid=${GID:-1000}
+      - /var/run:uid=${UID:-1000},gid=${GID:-1000}
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.excalidraw.entrypoints=https"
+      - "traefik.http.routers.excalidraw.middlewares=default-chain@file,authentik@file"
+      - "traefik.http.services.excalidraw.loadbalancer.server.port=80"
+
+networks:
+  proxy:
+    external: true

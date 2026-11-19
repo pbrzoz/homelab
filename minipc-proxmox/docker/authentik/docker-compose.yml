@@ -1,0 +1,185 @@
+services:
+  authentik_postgresql:
+    image: docker.io/library/postgres:16-alpine
+    container_name: authentik_postgresql
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - SETUID
+      - SETGID
+      - DAC_READ_SEARCH
+    environment:
+      POSTGRES_USER: ${PG_USER:-authentik}
+      POSTGRES_DB: ${PG_DB:-authentik}
+      POSTGRES_PASSWORD_FILE: /run/secrets/authentik_pg_pass
+    secrets:
+      - authentik_pg_pass
+    volumes:
+    - ./data/database:/var/lib/postgresql/data
+    networks:
+      - authentik_net
+
+  authentik_server:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG:-2026.8.5}
+    container_name: authentik_server
+    command: server
+    restart: always
+    depends_on:
+      authentik_postgresql:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1G
+        reservations:
+          cpus: "0.10"
+          memory: 256M
+    shm_size: 512mb
+    healthcheck:
+      test: ["CMD-SHELL", "ak healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    user: "${UID:-1000}:${GID:-1000}"
+    cap_drop:
+      - ALL
+    environment:
+      AUTHENTIK_SECRET_KEY: file:///run/secrets/authentik_secret_key
+      AUTHENTIK_POSTGRESQL__HOST: authentik_postgresql
+      AUTHENTIK_POSTGRESQL__USER: ${PG_USER:-authentik}
+      AUTHENTIK_POSTGRESQL__NAME: ${PG_DB:-authentik}
+      AUTHENTIK_POSTGRESQL__PASSWORD: file:///run/secrets/authentik_pg_pass
+      AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING:-false}
+      AUTHENTIK_LOG_LEVEL: ${AUTHENTIK_LOG_LEVEL:-info}
+    secrets:
+      - authentik_pg_pass
+      - authentik_secret_key
+    volumes:
+    - ./data/data:/data
+    - ./data/custom-templates:/templates
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.authentik.entrypoints=https"
+      - "traefik.http.routers.authentik.rule=Host(`auth.${DOMAIN}`) && PathPrefix(`/`)"
+      - "traefik.http.routers.authentik.middlewares=default-chain@file"
+      - "traefik.http.routers.authentik.service=authentik"
+      - "traefik.http.services.authentik.loadbalancer.server.port=9000"
+    networks:
+      - authentik_net
+      - proxy
+      - metrics
+
+  worker:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG:-2026.8.5}
+    container_name: authentik_worker
+    command: worker
+    restart: always
+    depends_on:
+      authentik_postgresql:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+        reservations:
+          cpus: "0.05"
+          memory: 128M
+    shm_size: 512mb
+    security_opt:
+      - no-new-privileges:true
+    user: "${UID:-1000}:${GID:-1000}"
+    cap_drop:
+      - ALL
+    environment:
+      AUTHENTIK_SECRET_KEY: file:///run/secrets/authentik_secret_key
+      AUTHENTIK_POSTGRESQL__HOST: authentik_postgresql
+      AUTHENTIK_POSTGRESQL__USER: ${PG_USER:-authentik}
+      AUTHENTIK_POSTGRESQL__NAME: ${PG_DB:-authentik}
+      AUTHENTIK_POSTGRESQL__PASSWORD: file:///run/secrets/authentik_pg_pass
+      AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING:-false}
+      AUTHENTIK_LOG_LEVEL: ${AUTHENTIK_LOG_LEVEL:-info}
+    secrets:
+      - authentik_pg_pass
+      - authentik_secret_key
+    volumes:
+    - ./data/data:/data
+    - ./data/certs:/certs
+    - ./data/custom-templates:/templates
+    networks:
+      - authentik_net
+
+  authentik_ldap_outpost:
+    image: ghcr.io/goauthentik/ldap:${AUTHENTIK_TAG:-2026.8.5}
+    container_name: authentik_ldap_outpost
+    restart: always
+    depends_on:
+      authentik_server:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 128M
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+    healthcheck:
+      test: ["CMD", "/ldap", "healthcheck"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 240s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    user: "${UID:-1000}:${GID:-1000}"
+    cap_drop:
+      - ALL
+    environment:
+      AUTHENTIK_HOST: https://auth.${DOMAIN}/
+      AUTHENTIK_INSECURE: "false"
+      AUTHENTIK_TOKEN: ${AUTHENTIK_LDAP_OUTPOST_TOKEN:?ldap outpost token required}
+      TMPDIR: /dev/shm/
+      GOFIPS: "1"
+    ports:
+      - "${AUTHENTIK_LDAP_BIND_IP}:636:6636" # Bind the port to the hosts IP address
+    networks:
+      - proxy
+
+secrets:
+  authentik_pg_pass:
+    file: ./secrets/authentik_pg_pass
+  authentik_secret_key:
+    file: ./secrets/authentik_secret_key
+
+networks:
+  authentik_net:
+    internal: true
+  proxy:
+    external: true
+  metrics:
+    external: true

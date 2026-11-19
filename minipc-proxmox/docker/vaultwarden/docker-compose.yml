@@ -1,0 +1,31 @@
+services:
+  vaultwarden:
+    container_name: vaultwarden
+    image: vaultwarden/server:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    user: "${PUID}:${PGID}"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks:
+      - proxy
+    volumes:
+      - ./data:/data
+      - ${LOG_DIR}:/logs
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vaultwarden.entrypoints=https"
+      - "traefik.http.routers.vaultwarden.middlewares=default-chain@file,local-whitelist@file"
+      - "traefik.http.services.vaultwarden.loadbalancer.server.port=80"
+
+networks:
+  proxy:
+    external: true

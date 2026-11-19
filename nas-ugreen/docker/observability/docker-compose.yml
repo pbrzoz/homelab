@@ -1,0 +1,189 @@
+services:
+  # Observability agent for the NAS
+  node-exporter:
+    image: prom/node-exporter:v1.10.2
+    container_name: nas-node-exporter
+    restart: unless-stopped
+    pid: host
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 128M
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    command:
+      - "--path.rootfs=/host"
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/credentials/.+|var/lib/docker/.+)($$|/)"
+      - "--collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)$$"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host:ro,rslave
+    ports:
+      - "9100:9100"
+  
+  # Per-container metrics exporter: CPU, memory, network and OOM kills for each container.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
+    container_name: nas-cadvisor
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+    security_opt:
+      - no-new-privileges:true
+    cap_add:
+      - SYSLOG              # read /dev/kmsg, which is how cAdvisor sees OOM kills
+    devices:
+      - /dev/kmsg:/dev/kmsg:r
+    command:
+      - "--docker_only=true"
+      - "--housekeeping_interval=30s"
+      - "--store_container_labels=false"
+      - "--whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service"
+      - "--disable_metrics=percpu,sched,tcp,udp,advtcp,process,hugetlb,referenced_memory,cpu_topology,resctrl,disk,diskIO"
+      - "--event_storage_event_limit=default=0"
+      - "--event_storage_age_limit=default=0"
+      - "--storage_duration=1m"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    ports:
+      - "9102:8080"
+  
+  # Runs smartctl on host drives and exposes their SMART health data (temperature, wear, errors, etc.)
+  smartctl-exporter:
+    image: prometheuscommunity/smartctl-exporter:v0.14.0
+    container_name: nas-smartctl-exporter
+    restart: unless-stopped
+    user: "0:0"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 64M
+        reservations:
+          cpus: "0.02"
+          memory: 16M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_RAWIO
+      - SYS_ADMIN
+    read_only: true
+    devices:
+      - /dev/sda
+      - /dev/sdb
+      - /dev/nvme0n1
+      - /dev/nvme1n1
+    command:
+      - "--no-smartctl.scan"
+      - "--smartctl.device=/dev/sda;sat"
+      - "--smartctl.device=/dev/sdb;sat"
+      - "--smartctl.device=/dev/nvme0n1;nvme"
+      - "--smartctl.device=/dev/nvme1n1;nvme"
+    ports:
+      - "9633:9633"
+  
+  # Alloy needs the Docker API to discover containers and stream their stdout.
+  # It gets its own socket proxy rather than the raw socket.
+  dockerproxy:
+    image: ghcr.io/tecnativa/docker-socket-proxy:latest
+    container_name: nas-dockerproxy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 64M
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:2375/_ping || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run
+    environment:
+      - CONTAINERS=1
+      - EVENTS=1
+      - NETWORKS=1
+      - PING=1
+      - VERSION=1
+      - POST=0          # read-only: nothing can be started or stopped through this
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - socket_net
+  
+  # Log shipper: tails every container's stdout (via dockerproxy)
+  alloy:
+    image: grafana/alloy:v1.12.1
+    container_name: nas-alloy
+    restart: unless-stopped
+    depends_on:
+      dockerproxy:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 320M
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    command:
+      - "run"
+      - "--server.http.listen-addr=0.0.0.0:12345"
+      - "--storage.path=/alloy-data"
+      - "/etc/alloy/config.alloy"
+    environment:
+      TZ: ${TIMEZONE}
+      LOKI_USER: ${LOKI_USER}
+      LOKI_PASSWORD: ${LOKI_PASSWORD:?set LOKI_PASSWORD in .env}
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ./alloy/data:/alloy-data
+    networks:
+      - socket_net
+      - default
+
+networks:
+  socket_net:
+    internal: true

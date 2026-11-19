@@ -1,0 +1,117 @@
+services:
+  dockerproxy:
+    image: ghcr.io/tecnativa/docker-socket-proxy:latest
+    container_name: homepage_dockerproxy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.50'
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:2375/_ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s   
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run
+    environment:
+      - CONTAINERS=1 # Allow access to viewing containers
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - socket_net
+
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+    environment:
+      HOMEPAGE_ALLOWED_HOSTS: homepage.${DOMAIN}
+      PUID: ${PUID} 
+      PGID: ${PGID}
+      HOMEPAGE_FILE_KARAKEEP: /run/secrets/karakeep_api_key
+      HOMEPAGE_FILE_ADGUARD_USERNAME: /run/secrets/adguard_username
+      HOMEPAGE_FILE_ADGUARD_PASSWORD: /run/secrets/adguard_password
+      HOMEPAGE_FILE_MEALIE: /run/secrets/mealie_api_key
+      HOMEPAGE_FILE_CHANGEDETECTION: /run/secrets/changedetection_api_key
+      HOMEPAGE_FILE_CALIBRE_USERNAME: /run/secrets/calibre_username
+      HOMEPAGE_FILE_CALIBRE_PASSWORD: /run/secrets/calibre_password
+      HOMEPAGE_FILE_TRAEFIK_USERNAME: /run/secrets/traefik_username
+      HOMEPAGE_FILE_TRAEFIK_PASSWORD: /run/secrets/traefik_password
+      HOMEPAGE_FILE_PROXMOX_USERNAME: /run/secrets/proxmox_username
+      HOMEPAGE_FILE_PROXMOX_PASSWORD: /run/secrets/proxmox_password
+    secrets:
+      - karakeep_api_key
+      - adguard_username
+      - adguard_password
+      - mealie_api_key
+      - changedetection_api_key
+      - calibre_username
+      - calibre_password
+      - traefik_username
+      - traefik_password
+      - proxmox_username
+      - proxmox_password
+    networks:
+      - socket_net
+      - proxy
+    volumes:
+      - ./config:/app/config # Make sure your local config directory exists
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.50'
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID # needed by the entrypoint to drop from root to PUID/PGID
+      - SETGID
+    read_only: true
+    tmpfs:
+      - /tmp
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.homepage.entrypoints=https"
+      - "traefik.http.routers.homepage.middlewares=default-chain@file,authentik@file"
+      - "traefik.http.services.homepage.loadbalancer.server.port=3000"
+
+secrets:
+  karakeep_api_key:
+    file: ./secrets/karakeep_api_key
+  adguard_username:
+    file: ./secrets/adguard_username
+  adguard_password:
+    file: ./secrets/adguard_password
+  mealie_api_key:
+    file: ./secrets/mealie_api_key
+  changedetection_api_key:
+    file: ./secrets/changedetection_api_key
+  calibre_username:
+    file: ./secrets/calibre_username
+  calibre_password:
+    file: ./secrets/calibre_password
+  traefik_username:
+    file: ./secrets/traefik_username
+  traefik_password:
+    file: ./secrets/traefik_password
+  proxmox_username:
+    file: ./secrets/proxmox_username
+  proxmox_password:
+    file: ./secrets/proxmox_password
+
+networks:
+  socket_net:
+    internal: true
+  proxy:
+    external: true

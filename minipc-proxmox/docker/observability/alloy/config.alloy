@@ -1,0 +1,134 @@
+logging {
+  level  = "warn"
+  format = "logfmt"
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+  external_labels = {
+    host = "docker01",
+  }
+}
+
+discovery.docker "containers" {
+  host             = "tcp://obs_dockerproxy:2375"
+  refresh_interval = "30s"
+}
+
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(alloy|loki|prometheus|grafana|cadvisor|node-exporter|blackbox|obs_dockerproxy)"
+    action        = "drop"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "stack"
+  }
+
+  rule {
+    target_label = "job"
+    replacement  = "docker"
+  }
+}
+
+loki.source.docker "containers" {
+  host             = "tcp://obs_dockerproxy:2375"
+  targets          = discovery.relabel.containers.output
+  forward_to       = [loki.process.containers.receiver]
+  refresh_interval = "30s"
+}
+
+loki.process "containers" {
+  stage.drop {
+    older_than          = "24h"
+    drop_counter_reason = "backfill_too_old"
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+local.file_match "traefik_access" {
+  path_targets = [{
+    __path__ = "/var/log/traefik/access.log",
+    job      = "traefik",
+    log_type = "access",
+  }]
+}
+
+loki.source.file "traefik_access" {
+  targets       = local.file_match.traefik_access.targets
+  tail_from_end = true
+  forward_to    = [loki.process.traefik_access.receiver]
+}
+
+loki.process "traefik_access" {
+  stage.json {
+    expressions = {
+      status     = "DownstreamStatus",
+      service    = "ServiceName",
+      entrypoint = "EntryPointName",
+      method     = "RequestMethod",
+      duration   = "Duration",
+      client     = "ClientHost",
+      req_host   = "RequestHost",
+      req_path   = "RequestPath",
+    }
+  }
+
+  stage.labels {
+    values = {
+      status     = "status",
+      service    = "service",
+      entrypoint = "entrypoint",
+    }
+  }
+
+  stage.timestamp {
+    source = "StartUTC"
+    format = "RFC3339Nano"
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+local.file_match "traefik_app" {
+  path_targets = [{
+    __path__ = "/var/log/traefik/traefik.log",
+    job      = "traefik",
+    log_type = "app",
+  }]
+}
+
+loki.source.file "traefik_app" {
+  targets       = local.file_match.traefik_app.targets
+  tail_from_end = true
+  forward_to    = [loki.process.traefik_app.receiver]
+}
+
+loki.process "traefik_app" {
+  stage.json {
+    expressions = {
+      level = "level",
+    }
+  }
+
+  stage.labels {
+    values = {
+      level = "level",
+    }
+  }
+
+  forward_to = [loki.write.default.receiver]
+}

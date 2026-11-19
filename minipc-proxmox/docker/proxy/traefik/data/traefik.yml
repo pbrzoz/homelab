@@ -1,0 +1,122 @@
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+api:
+  dashboard: true
+  debug: false
+  insecure: false
+
+entryPoints:
+  http:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: https
+          scheme: https
+          permanent: true
+      aliasHeadersStrategy: delete
+  https:
+    address: ":443"
+    http:
+      tls:
+        certResolver: duckdns
+        domains:
+          - main: "DOMAIN.TLD"
+            sans:
+              - "*.DOMAIN.TLD"
+      aliasHeadersStrategy: delete
+    forwardedHeaders:
+      trustedIPs:
+        - "127.0.0.1/32"
+        - "10.0.0.0/8"
+        - "172.16.0.0/12"
+        - "192.168.0.0/16"
+  traefik:
+    address: ":8080"
+    http:
+      aliasHeadersStrategy: delete
+
+providers:
+  docker:
+    defaultRule: Host(`{{ .ContainerName }}.DOMAIN.TLD`) # Traefik will create a default rule based on the container name
+    endpoint: "tcp://dockerproxy:2375"
+    exposedByDefault: false
+    network: proxy
+    watch: true
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+  providersThrottleDuration: 10s
+
+certificatesResolvers:
+  duckdns:
+    acme:
+      email: you@email.com
+      storage: acme.json
+      caServer: https://acme-v02.api.letsencrypt.org/directory # prod (default)
+      # caServer: https://acme-staging-v02.api.letsencrypt.org/directory # staging
+      dnsChallenge:
+        provider: duckdns
+        propagation:
+          # disablePropagationCheck: true # uncomment this if you have issues pulling certificates, By setting this flag to true disables the need to wait for the propagation of the TXT record to all authoritative name servers.
+          delayBeforeChecks: 60s # uncomment along with disablePropagationCheck if needed to ensure the TXT record is ready before verification is attempted 
+        resolvers:
+          - "1.1.1.1:53"
+          - "1.0.0.1:53"
+
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+      maxVersion: VersionTLS13
+      cipherSuites:
+        - TLS_AES_128_GCM_SHA256
+        - TLS_AES_256_GCM_SHA384
+        - TLS_CHACHA20_POLY1305_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305
+      curvePreferences:
+        - X25519
+        - CurveP256
+        - CurveP384
+      sniStrict: true
+      
+    strict:                    # opt-in for services that must reject TLS 1.2 entirely
+      minVersion: VersionTLS13 # TLS 1.3 only
+      sniStrict: true
+
+log:
+  level: "INFO"
+  filePath: "/var/log/traefik/traefik.log"
+  format: json
+  maxSize: 10
+  maxBackups: 10
+  maxAge: 14
+
+accessLog:
+  filePath: "/var/log/traefik/access.log"
+  format: json
+  bufferingSize: 50
+  fields:
+    defaultMode: keep
+
+metrics:
+  prometheus:
+    entryPoint: traefik
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+    addServicesLabels: true
+
+ping: {}
+
+experimental:
+  plugins:
+    crowdsec:
+      moduleName: "github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin"
+      version: "v1.7.1"

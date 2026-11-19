@@ -1,0 +1,168 @@
+---
+# For configuration options and examples, please see:
+# https://gethomepage.dev/latest/configs/services
+
+- Services:
+    - Proxmox:
+        icon: proxmox.png
+        href: https://proxmox.DOMAIN.TLD
+        widget:
+            type: proxmox
+            url: https://PROXMOX_IP:8006
+            username: {{HOMEPAGE_FILE_PROXMOX_USERNAME}}
+            password: {{HOMEPAGE_FILE_PROXMOX_PASSWORD}}
+            node: myproxmox
+    - Traefik:
+        icon: traefik.png
+        href: https://traefik-dashboard.DOMAIN.TLD
+        server: my-docker
+        container: traefik
+        widget:
+            type: traefik
+            url: https://traefik-dashboard.DOMAIN.TLD
+            username: {{HOMEPAGE_FILE_TRAEFIK_USERNAME}}
+            password: {{HOMEPAGE_FILE_TRAEFIK_PASSWORD}}
+    - Calibre:
+        icon: sh-calibre-web.png
+        href: https://calibre.DOMAIN.TLD        
+        server: my-docker
+        widget:
+            type: calibreweb
+            url: https://calibre.DOMAIN.TLD
+            username: {{HOMEPAGE_FILE_CALIBRE_USERNAME}}
+            password: {{HOMEPAGE_FILE_CALIBRE_PASSWORD}}
+    - Changedetection:
+        icon: changedetection.png
+        href: https://changedetection.DOMAIN.TLD
+        container: changedetection
+        server: my-docker
+        widget:
+            type: changedetectionio
+            url: http://changedetection:5000
+            key: {{HOMEPAGE_FILE_CHANGEDETECTION}}
+    - Mealie:
+        icon: mealie.png
+        href: https://mealie.DOMAIN.TLD
+        container: mealie
+        server: my-docker
+        widget:
+            type: mealie
+            url: https://mealie.DOMAIN.TLD
+            key: {{HOMEPAGE_FILE_MEALIE}}
+            version: 2
+    - Adguard Home:
+        icon: adguard-home.png
+        href: http://ADGUARD_IP
+        widget:
+            type: adguard
+            url: http://ADGUARD_IP
+            username: {{HOMEPAGE_FILE_ADGUARD_USERNAME}}
+            password: {{HOMEPAGE_FILE_ADGUARD_PASSWORD}}
+    - Karakeep:
+        icon: karakeep.png
+        href: https://karakeep.DOMAIN.TLD
+        container: karakeep
+        server: my-docker
+        widget:
+            type: karakeep
+            url: https://karakeep.DOMAIN.TLD
+            key: {{HOMEPAGE_FILE_KARAKEEP}}
+
+-  Apps:
+    - Other:
+        - Home Assistant:
+            icon: home-assistant.png
+            href: https://homeassistant.DOMAIN.TLD
+        - Vaultwarden:
+            icon: vaultwarden.png
+            href: https://vaultwarden.DOMAIN.TLD
+            container: vaultwarden
+            server: my-docker
+        - Your-Spotify:
+            icon: your-spotify.png
+            href: https://your-spotify.DOMAIN.TLD
+            container: your_spotify-server-1
+            server: my-docker
+        - Excalidraw:
+            icon: excalidraw.png
+            href: https://excalidraw.DOMAIN.TLD
+            container: excalidraw
+        # - Monkeytype:
+        #     icon: mdi-keyboard
+        #     href: https://monkeytype.DOMAIN.TLD
+        #     container: monkeytype 
+        - SearXNG:
+            icon: searxng.png
+            href: https://searxng.DOMAIN.TLD
+            container: searxng
+            server: my-docker
+        - Nextcloud:
+            icon: nextcloud.png
+            href: https://nextcloud.DOMAIN.TLD
+    - Tools:
+        - draw.io:
+            icon: draw-io.png
+            href: https://drawio.DOMAIN.TLD
+            container: drawio
+            server: my-docker
+        - IT Tools:
+            icon: it-tools.png
+            href: https://it-tools.DOMAIN.TLD
+            container: it-tools
+            server: my-docker
+        - OpenSpeedTest:
+            icon: openspeedtest.png
+            href: https://speedtest.DOMAIN.TLD
+            container: speedtest
+            server: my-docker
+        - Stirling-PDF:
+            icon: stirling-pdf.png
+            href: https://pdf.DOMAIN.TLD
+            container: pdf
+            server: my-docker
+        - Convertx:
+            icon: sh-convertx.png
+            href: https://convertx.DOMAIN.TLD
+            container: convertx
+            server: my-docker
+        - Omni-tools:
+            icon: omni-tools.png
+            href: https://omni-tools.DOMAIN.TLD
+            container: omni-tools
+            server: my-docker
+    - Media:
+        - Jellyfin:
+            icon: jellyfin.png
+            href: https://jellyfin.DOMAIN.TLD
+        - Navidrome:
+            icon: navidrome.png
+            href: https://navidrome.DOMAIN.TLD
+        - RomM:
+            icon: romm.png
+            href: https://romm.DOMAIN.TLD
+    - System:
+        - Rclone:
+            icon: rclone.png
+            href: https://rclone-dashboard.DOMAIN.TLD
+            container: rclone-dashboard
+            server: my-docker
+        - Grafana:
+            icon: grafana.png
+            href: https://grafana.DOMAIN.TLD
+            container: grafana
+            server: my-docker
+        - Prometheus:
+            icon: prometheus.png
+            href: https://prometheus.DOMAIN.TLD
+            container: prometheus
+            server: my-docker
+        - Authentik:
+            icon: authentik.png
+            href: https://auth.DOMAIN.TLD
+            container: authentik_server
+            server: my-docker
+        - Dockhand:
+            icon: dockhand.png
+            href: https://dockhand.DOMAIN.TLD
+            container: dockhand
+            server: my-docker

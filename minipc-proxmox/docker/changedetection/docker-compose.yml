@@ -1,0 +1,86 @@
+services:
+  changedetection:
+    image: ghcr.io/dgtlmoon/changedetection.io:latest
+    container_name: changedetection
+    hostname: changedetection
+    volumes:
+      - ./data/datastore:/datastore    
+    environment:      
+      - PLAYWRIGHT_DRIVER_URL=ws://playwright-chrome:3000
+      - BASE_URL=${BASE_URL}
+      - HIDE_REFERER=true
+      - DISABLE_VERSION_CHECK=true
+      - TZ=${TIMEZONE}
+    depends_on:
+      playwright-chrome:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+        reservations:
+          cpus: "0.10"
+          memory: 128M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL # app doesn't need any Linux capabilities to run
+    read_only: true
+    tmpfs:
+      - /tmp # only path the app writes to outside the /datastore bind mount
+    networks:
+      - proxy
+      - changedetection
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.changedetection.entrypoints=https"
+      - "traefik.http.routers.changedetection.middlewares=default-chain@file,authentik@file"
+      - "traefik.http.services.changedetection.loadbalancer.server.port=5000"
+
+  playwright-chrome:
+    hostname: playwright-chrome
+    image: browserless/chrome
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 2048M
+        reservations:
+          cpus: "0.25"
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp # Chrome's --user-data-dir lives here
+      - /home/blessuser/.config # Chrome/crashpad create this at runtime; doesn't exist in the image
+    volumes:
+      - type: tmpfs
+        target: /usr/src/app/workspace # Chrome's configured download dir; mode 01777 so non-root blessuser can write it
+        tmpfs:
+          mode: 01777
+    networks:
+      - changedetection
+    environment:
+      - SCREEN_WIDTH=1920
+      - SCREEN_HEIGHT=1024
+      - SCREEN_DEPTH=16
+      - ENABLE_DEBUGGER=false
+      - PREBOOT_CHROME=true
+      - CONNECTION_TIMEOUT=300000
+      - MAX_CONCURRENT_SESSIONS=10
+      - CHROME_REFRESH_TIME=600000
+      - DEFAULT_BLOCK_ADS=false
+      - DEFAULT_STEALTH=true
+      #- DEFAULT_IGNORE_HTTPS_ERRORS=true # Ignore HTTPS errors, like for self-signed certs
+
+networks:
+  proxy:
+    external: true
+  changedetection:
+    internal: false

@@ -1,0 +1,961 @@
+# Generated alert rules. Editable in the Grafana UI is disabled for provisioned
+# rules; change them here and restart Grafana to apply.
+apiVersion: 1
+groups:
+- orgId: 1
+  name: Host
+  folder: Homelab Alerts
+  interval: 1m
+  rules:
+  - uid: hl-disk-predict
+    title: Root filesystem will fill within 4 days
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 21600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: min by (host, device) (predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|vfat"}[6h],
+          4*24*3600) and (node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|vfat"} > 5e9))
+        instant: true
+        range: false
+        editorMode: code
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 21600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        reducer: last
+        expression: A
+        settings:
+          mode: dropNN
+        conditions: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    - refId: C
+      relativeTimeRange:
+        from: 21600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: lt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 30m
+    labels:
+      severity: critical
+    annotations:
+      summary: '{{ $labels.host }}: {{ $labels.device }} is on track to run out of space within 4 days'
+      description: Linear projection of the last 6h of free space crosses zero inside 4 days. Prometheus
+        and Loki both write here, so check their retention first, then docker image/volume usage.
+    isPaused: false
+  - uid: hl-disk-low
+    title: Root filesystem below 15% free
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: min by (host, device) (100 * node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|vfat"}
+          / (node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|vfat"} > 5e9))
+        instant: true
+        range: false
+        editorMode: code
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        reducer: last
+        expression: A
+        settings:
+          mode: dropNN
+        conditions: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    - refId: C
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            params:
+            - 15
+            type: lt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.host }}: less than 15% of {{ $labels.device }} remains free'
+      description: Currently {{ $values.B }}% free on {{ $labels.device }}.
+    isPaused: false
+  - uid: hl-mem-low
+    title: Host memory available below 12%
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 100 * node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes
+        instant: true
+        range: false
+        editorMode: code
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        reducer: last
+        expression: A
+        settings:
+          mode: dropNN
+        conditions: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    - refId: C
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            params:
+            - 12
+            type: lt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: '{{ $labels.host }} is nearly out of available memory'
+      description: This host has no swap configured, so memory exhaustion means the kernel OOM-kills a
+        container rather than slowing down. Currently {{ $values.B }}% available.
+    isPaused: false
+  - uid: hl-load-high
+    title: Load average above 1.5x core count
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: node_load5 / count(count(node_cpu_seconds_total) by (cpu))
+        instant: true
+        range: false
+        editorMode: code
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        reducer: last
+        expression: A
+        settings:
+          mode: dropNN
+        conditions: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    - refId: C
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            params:
+            - 1.5
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 20m
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.host }}: sustained CPU saturation'
+      description: 5-minute load average is more than 1.5 runnable tasks per core for 20 minutes.
+    isPaused: false
+  - uid: hl-iowait-high
+    title: CPU iowait above 20%
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 100 * avg without(cpu) (rate(node_cpu_seconds_total{mode="iowait"}[5m]))
+        instant: true
+        range: false
+        editorMode: code
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        reducer: last
+        expression: A
+        settings:
+          mode: dropNN
+        conditions: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    - refId: C
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            params:
+            - 20
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.host }} is spending significant time blocked on disk I/O'
+      description: Often the first sign that a backup, a prune or Loki compaction is saturating the disk.
+    isPaused: false
+- orgId: 1
+  name: Containers
+  folder: Homelab Alerts
+  interval: 1m
+  rules:
+  - uid: hl-ctr-mem-limit
+    title: Container within 15% of its memory limit
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 100 * max by (host, name) (container_memory_working_set_bytes{name!=""}) / on(host, name)
+          max by (host, name) (container_spec_memory_limit_bytes{name!=""} > 0 < 8e9)
+        instant: true
+        range: false
+        editorMode: code
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        reducer: last
+        expression: A
+        settings:
+          mode: dropNN
+        conditions: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    - refId: C
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            params:
+            - 85
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.name }} on {{ $labels.host }} is close to its configured memory limit'
+      description: Working set is {{ $values.B }}% of the deploy.resources.limits.memory set for this
+        container. Exceeding it is an immediate OOM kill, not a slowdown.
+    isPaused: false
+  - uid: hl-ctr-throttle
+    title: Container CPU throttled above 25% of periods
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 100 * max by (host, name) (rate(container_cpu_cfs_throttled_periods_total{name!=""}[5m]))
+          / on(host, name) max by (host, name) (rate(container_cpu_cfs_periods_total{name!=""}[5m]) >
+          0)
+        instant: true
+        range: false
+        editorMode: code
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        reducer: last
+        expression: A
+        settings:
+          mode: dropNN
+        conditions: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    - refId: C
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            params:
+            - 25
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: OK
+    execErrState: Error
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.name }} on {{ $labels.host }} is being CPU throttled'
+      description: The container is hitting its deploy.resources.limits.cpus ceiling in more than a quarter
+        of scheduling periods. This shows up to users as latency with no error anywhere.
+    isPaused: false
+  - uid: hl-ctr-restart-loop
+    title: Container restarting repeatedly
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: changes(container_start_time_seconds{name!=""}[1h])
+        instant: true
+        range: false
+        editorMode: code
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        reducer: last
+        expression: A
+        settings:
+          mode: dropNN
+        conditions: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    - refId: C
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            params:
+            - 3
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.name }} on {{ $labels.host }} has restarted more than 3 times in an hour'
+      description: Indicates a crash loop or a failing healthcheck rather than a one-off restart.
+    isPaused: false
+- orgId: 1
+  name: Endpoints
+  folder: Homelab Alerts
+  interval: 1m
+  rules:
+  - uid: hl-target-down
+    title: Prometheus scrape target down
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: up
+        instant: true
+        range: false
+        editorMode: code
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        reducer: last
+        expression: A
+        settings:
+          mode: dropNN
+        conditions: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    - refId: C
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            params:
+            - 1
+            type: lt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: Scrape target {{ $labels.job }} / {{ $labels.instance }} is down
+      description: Prometheus has been unable to scrape this target for 10 minutes.
+    isPaused: false
+  - uid: hl-probe-failed
+    title: Endpoint probe failing
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: probe_success
+        instant: true
+        range: false
+        editorMode: code
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        reducer: last
+        expression: A
+        settings:
+          mode: dropNN
+        conditions: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    - refId: C
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            params:
+            - 1
+            type: lt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.instance }} is not responding'
+      description: The blackbox HTTP probe has failed for 10 minutes. For scope=remote targets this may
+        be the other host rather than this one.
+    isPaused: false
+  - uid: hl-cert-expiry
+    title: TLS certificate expiring within 14 days
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 3600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: (probe_ssl_earliest_cert_expiry - time()) / 86400
+        instant: true
+        range: false
+        editorMode: code
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 3600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        reducer: last
+        expression: A
+        settings:
+          mode: dropNN
+        conditions: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    - refId: C
+      relativeTimeRange:
+        from: 3600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            params:
+            - 14
+            type: lt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: NoData
+    execErrState: Error
+    for: 1h
+    labels:
+      severity: warning
+    annotations:
+      summary: Certificate for {{ $labels.instance }} expires in under 14 days
+      description: Traefik renews the DuckDNS wildcard via DNS-01. A silent renewal failure is the usual
+        cause; check the traefik container log for the duckdns resolver.
+    isPaused: false
+  - uid: hl-traefik-5xx
+    title: Traefik 5xx rate above 5%
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 100 * sum by (service) (rate(traefik_service_requests_total{code=~"5.."}[5m])) / sum by
+          (service) (rate(traefik_service_requests_total[5m]) > 0)
+        instant: true
+        range: false
+        editorMode: code
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: B
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        reducer: last
+        expression: A
+        settings:
+          mode: dropNN
+        conditions: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    - refId: C
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            params:
+            - 5
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.service }} is returning server errors'
+      description: More than 5% of requests routed to this backend returned 5xx over the last 5 minutes.
+    isPaused: false
+- orgId: 1
+  name: Backups
+  folder: Homelab Alerts
+  interval: 5m
+  rules:
+  - uid: hl-backup-stale
+    title: No successful restic backup in 26 hours
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 93600
+        to: 0
+      datasourceUid: loki
+      model:
+        refId: A
+        expr: sum(count_over_time({container="restic-backup", host="docker01"} |= "Finished backup at"
+          [26h]))
+        queryType: instant
+        editorMode: code
+        intervalMs: 1000
+        maxDataPoints: 43200
+        datasource:
+          type: loki
+          uid: loki
+    - refId: B
+      relativeTimeRange:
+        from: 93600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        reducer: last
+        expression: A
+        settings:
+          mode: dropNN
+        conditions: []
+        datasource:
+          type: __expr__
+          uid: __expr__
+    - refId: C
+      relativeTimeRange:
+        from: 93600
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            params:
+            - 1
+            type: lt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+    noDataState: Alerting
+    execErrState: Error
+    for: 30m
+    labels:
+      severity: critical
+    annotations:
+      summary: restic has not logged a completed backup in 26 hours
+      description: BACKUP_CRON runs twice a day, so a gap beyond 26h means at least
+        two runs were missed or failed. Expect this rule to fire until the first backup completes after
+        Alloy started, since Alloy only tails new log lines.
+    isPaused: false

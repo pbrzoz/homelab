@@ -1,0 +1,388 @@
+services:
+  # Alloy needs the Docker API to discover containers and stream their stdout.
+  # It gets its own socket proxy rather than the raw socket.
+  dockerproxy:
+    image: ghcr.io/tecnativa/docker-socket-proxy:latest
+    container_name: obs_dockerproxy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 64M
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:2375/_ping || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run
+    environment:
+      - CONTAINERS=1   # allow GET /containers - discovery plus the /logs endpoint Alloy streams from
+      - EVENTS=1       # allow GET /events - Alloy refreshes its target list on start/stop
+      - NETWORKS=1     # allow GET /networks - discovery.docker resolves network labels for each target
+      - PING=1         # allow GET /_ping - used by the healthcheck
+      - VERSION=1      # allow GET /version - Docker API version negotiation on startup
+      - POST=0         # read-only: no container can be started, stopped or altered through this proxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - socket_net
+
+  # Metrics database: scrapes every exporter below (plus Traefik, CrowdSec, Authentik
+  # and the NAS) and stores the time series that Grafana queries.
+  prometheus:
+    image: prom/prometheus:v3.7.3
+    container_name: prometheus
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 768M
+        reservations:
+          cpus: "0.10"
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=${PROM_RETENTION_TIME:-15d}"
+      - "--storage.tsdb.retention.size=${PROM_RETENTION_SIZE:-4GB}"
+      - "--web.enable-lifecycle"          # POST /-/reload to pick up config edits without a restart
+      - "--web.external-url=https://prometheus.${DOMAIN}"
+      - "--web.route-prefix=/"
+    environment:
+      TZ: ${TIMEZONE}
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/data:/prometheus
+    networks:
+      - metrics
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.entrypoints=https"
+      - "traefik.http.routers.prometheus.middlewares=local-whitelist@file,default-chain@file,authentik@file"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+  
+  # Dashboards and alerting UI on top of Prometheus (metrics) and Loki (logs).
+  grafana:
+    image: grafana/grafana:12.3.1
+    container_name: grafana
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+        reservations:
+          cpus: "0.10"
+          memory: 128M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      TZ: ${TIMEZONE}
+      GF_SERVER_ROOT_URL: https://grafana.${DOMAIN}
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_INSTALL_PLUGINS: ""
+      GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+      GF_AUTH_GENERIC_OAUTH_NAME: authentik
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: $$__file{/run/secrets/oidc_client_id}
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: $$__file{/run/secrets/oidc_client_secret}
+      GF_AUTH_GENERIC_OAUTH_SCOPES: "openid email profile offline_access"
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: https://auth.${DOMAIN}/application/o/authorize/
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: https://auth.${DOMAIN}/application/o/token/
+      GF_AUTH_GENERIC_OAUTH_API_URL: https://auth.${DOMAIN}/application/o/userinfo/
+      GF_AUTH_GENERIC_OAUTH_LOGIN_ATTRIBUTE_PATH: preferred_username
+      GF_AUTH_GENERIC_OAUTH_NAME_ATTRIBUTE_PATH: name
+      GF_AUTH_GENERIC_OAUTH_EMAIL_ATTRIBUTE_PATH: email
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "contains(groups[*], '${OIDC_ADMIN_GROUP}') && 'Admin' || 'Viewer'"
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_STRICT: "false"
+      GF_AUTH_GENERIC_OAUTH_ALLOW_ASSIGN_GRAFANA_ADMIN: "true"
+      GF_AUTH_GENERIC_OAUTH_USE_PKCE: "true"
+      GF_AUTH_GENERIC_OAUTH_USE_REFRESH_TOKEN: "true"
+      GF_AUTH_SIGNOUT_REDIRECT_URL: https://auth.${DOMAIN}/application/o/grafana/end-session/
+      GF_AUTH_GENERIC_OAUTH_AUTO_LOGIN: "true"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: $$__file{/run/secrets/grafana_admin_password}
+      GF_UNIFIED_ALERTING_STATE_HISTORY_ANNOTATIONS_MAX_AGE: "90d"
+      GF_UNIFIED_ALERTING_STATE_HISTORY_ANNOTATIONS_MAX_ANNOTATIONS_TO_KEEP: "50000"
+    secrets:
+      - oidc_client_id
+      - oidc_client_secret
+      - grafana_admin_password
+      - discord_webhook_url
+    volumes:
+      - ./grafana/data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - metrics
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.entrypoints=https"
+      - "traefik.http.routers.grafana.middlewares=default-chain@file"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+
+  # Log database: receives logs pushed by Alloy (local and on the NAS) for Grafana to query.
+  loki:
+    image: grafana/loki:3.5.8
+    container_name: loki
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+        reservations:
+          cpus: "0.10"
+          memory: 128M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3100/ready || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    command: ["-config.file=/etc/loki/loki.yml"]
+    environment:
+      TZ: ${TIMEZONE}
+    volumes:
+      - ./loki/loki.yml:/etc/loki/loki.yml:ro
+      - ./loki/data:/loki
+    networks:
+      - metrics
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.loki.entrypoints=https"
+      - "traefik.http.routers.loki.middlewares=local-whitelist@file,default-chain@file,loki-push-auth"
+      - "traefik.http.middlewares.loki-push-auth.basicauth.users=${LOKI_BASIC_AUTH}"
+      - "traefik.http.middlewares.loki-push-auth.basicauth.removeheader=true"
+      - "traefik.http.services.loki.loadbalancer.server.port=3100"
+
+  # Log shipper: tails every container's stdout (via dockerproxy) and Traefik's
+  # access/app log files, labels them and pushes them to Loki.
+  alloy:
+    image: grafana/alloy:v1.12.1
+    container_name: alloy
+    user: "${UID:-1000}:${GID:-1000}"
+    restart: unless-stopped
+    depends_on:
+      loki:
+        condition: service_healthy
+      dockerproxy:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 320M
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    command:
+      - "run"
+      - "--server.http.listen-addr=0.0.0.0:12345"
+      - "--storage.path=/alloy-data"
+      - "/etc/alloy/config.alloy"
+    environment:
+      TZ: ${TIMEZONE}
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ./alloy/data:/alloy-data
+      - ${LOG_PATH}/traefik:/var/log/traefik:ro
+    networks:
+      - metrics
+      - socket_net
+
+  # Host metrics exporter: CPU, memory, disk, filesystem and network of this VM.
+  node-exporter:
+    image: prom/node-exporter:v1.10.2
+    container_name: node-exporter
+    restart: unless-stopped
+    # Host PID namespace is what lets node-exporter read per-process and netstat
+    # counters for the host rather than just its own container.
+    pid: host
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 128M
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    command:
+      - "--path.rootfs=/host"
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/credentials/.+|var/lib/docker/.+)($$|/)"
+      - "--collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)$$"
+      - "--no-collector.hwmon"       # guest VM on Proxmox: no real sensors are exposed here
+      - "--no-collector.thermal_zone"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host:ro,rslave
+    networks:
+      - metrics
+
+  # Per-container metrics exporter: CPU, memory, network and OOM kills for each container.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
+    container_name: cadvisor
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - "--docker_only=true"
+      - "--containerd=/run/docker/containerd/containerd.sock"
+      - "--housekeeping_interval=30s"
+      - "--store_container_labels=false"
+      - "--whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service"
+      - "--disable_metrics=percpu,sched,tcp,udp,advtcp,process,hugetlb,referenced_memory,cpu_topology,resctrl,disk,diskIO"
+      - "--event_storage_event_limit=default=0"
+      - "--event_storage_age_limit=default=0"
+      - "--storage_duration=1m"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg:/dev/kmsg:r
+    cap_add:
+      - SYSLOG   # required to read /dev/kmsg, which is how cAdvisor detects OOM kills
+    networks:
+      - metrics
+
+  # Uptime prober: Prometheus asks it to hit service URLs over HTTP(S) and records
+  # whether they answered with a 2xx, how fast, and when their TLS certs expire.
+  blackbox:
+    image: prom/blackbox-exporter:v0.28.0
+    container_name: blackbox
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 96M
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:9115/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    command: ["--config.file=/etc/blackbox/blackbox.yml"]
+    environment:
+      TZ: ${TIMEZONE}
+    volumes:
+      - ./blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    networks:
+      - metrics
+
+secrets:
+  oidc_client_id:
+    file: ./secrets/oidc_client_id
+  oidc_client_secret:
+    file: ./secrets/oidc_client_secret
+  grafana_admin_password:
+    file: ./secrets/grafana_admin_password
+  discord_webhook_url:
+    file: ./secrets/discord_webhook_url
+
+networks:
+  socket_net:
+    internal: true
+  metrics:
+    external: true
+  proxy:
+    external: true

@@ -1,0 +1,28 @@
+services:
+  openspeedtest:
+    image: openspeedtest/latest
+    container_name: speedtest
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 256M
+          pids: 100
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.openspeedtest.entrypoints=https"
+      - "traefik.http.middlewares.speed-limit.ratelimit.average=100"
+      - "traefik.http.middlewares.speed-limit.ratelimit.burst=200"
+      - "traefik.http.routers.openspeedtest.middlewares=speed-limit"
+      - "traefik.http.services.openspeedtest.loadbalancer.server.port=3000"
+
+networks:
+  proxy:
+    external: true

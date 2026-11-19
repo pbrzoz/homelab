@@ -1,0 +1,91 @@
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-security: &security
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+
+networks:
+  mediastack:
+    external: true
+
+services:
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:latest
+    container_name: jellyfin
+    restart: always
+    <<: *security
+    cap_add:
+      - CHOWN            # s6-overlay init chowns /config, /cache, /modcache to PUID:PGID
+      - SETUID            # s6-overlay drops from root to PUID after init
+      - SETGID            # s6-overlay drops from root to PGID after init
+      - DAC_OVERRIDE      # write to volumes before ownership is chowned to PUID:PGID
+      - FOWNER            # needed for when jellyfin-opencl-intel mod installs Intel driver packages
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8096/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${JELLYFIN_RENDER_GROUP:?err}"  # Find ID: getent group render | cut -d: -f3
+    volumes:
+      - ${FOLDER_FOR_MEDIA:?err}/media:/data/media
+      - ./data/jellyfin/config:/config
+      - ./data/jellyfin/cache:/cache
+      - ./data/jellyfin/fonts:/fonts:ro
+      - ../modmanager/modcache:/modcache #Optional. Used for loading the cached DOCKER_MODS from modmanager container
+    environment:
+      - PUID=${PUID:?err}
+      - PGID=${PGID:?err}
+      - UMASK=${UMASK:?err}
+      - TZ=${TIMEZONE:?err}
+      - DOCKER_MODS=linuxserver/mods:jellyfin-opencl-intel
+    networks:
+      - mediastack
+    ports:
+      - ${JELLYFIN_PORT:?err}:${JELLYFIN_PORT:?err}
+
+  muxarr:
+    image: ghcr.io/kirovair/muxarr:latest
+    init: true
+    container_name: muxarr
+    <<: *security
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8183/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    environment:
+      - TZ=${TIMEZONE:?err}
+      - PUID=${PUID:?err}
+      - PGID=${PGID:?err}
+    volumes:
+      - ./data/muxarr:/config
+      - ${FOLDER_FOR_MEDIA:?err}/media:/media
+    networks:
+      - mediastack
+    ports:
+      - ${MUXARR_PORT:?err}:${MUXARR_PORT:?err}
+    restart: always

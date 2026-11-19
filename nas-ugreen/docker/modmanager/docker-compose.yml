@@ -1,0 +1,18 @@
+services:
+  modmanager:
+    image: lscr.io/linuxserver/modmanager:latest
+    container_name: modmanager
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+    volumes:
+      - ./modcache:/modcache
+    environment:
+      - DOCKER_MODS=linuxserver/mods:jellyfin-opencl-intel
+    restart: always

@@ -1,0 +1,46 @@
+services:
+###########################################################################
+##  Docker Compose File: TVHeadend (LinuxServer.io)
+##  Function: DVB-T2 tuner server / PVR (Hauppauge WinTV-dualHD, 2x Si2168-D60)
+##  Documentation: https://docs.linuxserver.io/images/docker-tvheadend/
+##  Requires host firmware: /lib/firmware/dvb-demod-si2168-d60-01.fw
+###########################################################################
+  tvheadend:
+    image: lscr.io/linuxserver/tvheadend:latest
+    container_name: tvheadend
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    devices:
+      # Container won't start if the tuner is unplugged (/dev/dvb missing)
+      - /dev/dvb:/dev/dvb
+    group_add:
+      - "${DVB_VIDEO_GROUP:?err}"  # /dev/dvb/* are root:video 0660. Find ID: getent group video | cut -d: -f3
+    volumes:
+      - ./data/config:/config
+    environment:
+      - PUID=${PUID:?err}
+      - PGID=${PGID:?err}
+      - UMASK=${UMASK:?err}
+      - TZ=${TIMEZONE:?err}
+    networks:
+      - mediastack
+    ports:
+      - 9981:9981
+
+networks:
+  # Shared with the mediastack so Jellyfin can reach tvheadend:9981 by name
+  mediastack:
+    external: true

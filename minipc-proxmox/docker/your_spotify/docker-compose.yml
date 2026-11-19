@@ -1,0 +1,101 @@
+services:
+  server:
+    image: yooooomi/your_spotify_server:latest
+    container_name: your_spotify_server
+    restart: always
+    networks:
+     - proxy
+     - spotify
+    depends_on:
+      - mongo
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+        reservations:
+          cpus: "0.10"
+          memory: 128M
+    environment:
+      API_ENDPOINT: ${API_ENDPOINT}
+      CLIENT_ENDPOINT: ${CLIENT_ENDPOINT}
+      SPOTIFY_PUBLIC: ${SPOTIFY_CLIENT_ID}
+      SPOTIFY_SECRET: ${SPOTIFY_CLIENT_SECRET}
+      MONGO_ENDPOINT: mongodb://mongo:27017/your_spotify
+      CORS: ${API_ENDPOINT}
+      TIMEZONE: ${TIMEZONE}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.your-spotify_server.entrypoints=https"
+      - "traefik.http.routers.your-spotify_server.rule=Host(`your-spotify-server.DOMAIN.TLD`)"
+      - "traefik.http.routers.your-spotify_server.service=your-spotify_server"
+      - "traefik.http.middlewares.ys-cors.headers.accesscontrolallowmethods=GET,OPTIONS,PUT,POST,DELETE"
+      - "traefik.http.middlewares.ys-cors.headers.accesscontrolalloworiginlist=${CLIENT_ENDPOINT}"
+      - "traefik.http.middlewares.ys-cors.headers.accesscontrolmaxage=100"
+      - "traefik.http.middlewares.ys-cors.headers.addvaryheader=true"
+      - "traefik.http.routers.your-spotify_server.middlewares=default-chain@file, ys-cors"
+      - "traefik.http.services.your-spotify_server.loadbalancer.server.port=8080"
+
+  mongo:
+    container_name: mongo
+    image: mongo:8
+    restart: always
+    networks:
+     - spotify
+    user: "999:999"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1G
+        reservations:
+          cpus: "0.10"
+          memory: 256M
+    volumes:
+      - ./data/your_spotify_db:/data/db
+
+  web:
+    image: yooooomi/your_spotify_client:latest
+    container_name: your_spotify_client
+    restart: always
+    environment:
+      API_ENDPOINT: ${API_ENDPOINT}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.your-spotify.entrypoints=https"
+      - "traefik.http.routers.your-spotify.rule=Host(`your-spotify.DOMAIN.TLD`)"
+      - "traefik.http.routers.your-spotify.middlewares=default-chain@file"
+      - "traefik.http.routers.your-spotify.service=your-spotify"
+      - "traefik.http.services.your-spotify.loadbalancer.server.port=3000"
+    networks:
+     - proxy
+     - spotify
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 128M
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+
+networks:
+  proxy:
+    external: true
+  spotify:
+    internal: true

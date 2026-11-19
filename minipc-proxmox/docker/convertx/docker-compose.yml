@@ -1,0 +1,31 @@
+services:
+  convertx: 
+    image: ghcr.io/c4illin/convertx
+    container_name: convertx
+    restart: unless-stopped    
+    environment:
+      - JWT_SECRET=${JWT_SECRET} # will use randomUUID() if unset
+      - ALLOW_UNAUTHENTICATED=true #authentication is provided by Authentik
+      - MAX_CONVERT_PROCESS=2 # cap concurrent conversions to bound CPU/RAM usage
+      - AUTO_DELETE_EVERY_N_HOURS=24 # purge converted files so ./data can't grow unbounded
+    volumes:
+      - ./data:/app/data
+    networks:
+      - proxy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 1500M
+    pids_limit: 256
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.convertx.entrypoints=https"
+      - "traefik.http.routers.convertx.middlewares=default-chain@file,authentik@file"
+
+networks:
+  proxy:
+    external: true

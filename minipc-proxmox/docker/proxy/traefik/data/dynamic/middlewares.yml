@@ -1,0 +1,158 @@
+http:
+  middlewares:
+    traefik-auth:
+      basicAuth:
+        usersFile: "/run/secrets/dashboard_credentials"
+        removeHeader: true
+
+    authentik:
+      forwardauth:
+        address: "http://authentik_server:9000/outpost.goauthentik.io/auth/traefik"
+        trustForwardHeader: true
+        maxResponseBodySize: 8192
+        authResponseHeaders:
+          - X-authentik-username
+          - X-authentik-groups
+          - X-authentik-email
+          - X-authentik-name
+          - X-authentik-uid
+          - X-authentik-jwt
+          - X-authentik-meta-jwks
+          - X-authentik-meta-outpost
+          - X-authentik-meta-provider
+          - X-authentik-meta-app
+          - X-authentik-meta-version
+
+    default-whitelist:
+      ipAllowList:
+        sourceRange:
+          - "10.0.0.0/8"
+          - "192.168.0.0/16"
+          - "172.16.0.0/12"
+
+    local-whitelist:
+      ipAllowList:
+        sourceRange:
+          - "192.168.0.0/16"
+
+    dashboard-allowlist:
+      ipAllowList:
+        sourceRange:
+          - "192.168.0.0/16"
+          - "172.20.1.0/24" # proxy network
+
+    admin-ipallowlist:
+      ipAllowList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "192.168.0.0/16"
+
+    compress:
+      compress:
+        excludedContentTypes:
+          - text/event-stream
+          - video/mp4
+          - video/webm
+          - video/x-matroska
+          - video/mp2t
+          - audio/mpeg
+          - audio/ogg
+          - audio/flac
+          - audio/aac
+          - image/jpeg
+          - image/png
+          - image/webp
+          - image/avif
+          - application/octet-stream # covers HLS segments (.ts files)
+          - multipart/x-mixed-replace
+
+    crowdsec:
+      plugin:
+        crowdsec:
+          enabled: true
+          logLevel: INFO
+          updateIntervalSeconds: 60
+          defaultDecisionSeconds: 60
+          httpTimeoutSeconds: 10
+          banHTTPCode: 403
+          banHTTPMessage: "Forbidden"
+          crowdsecAppsecEnabled: true
+          crowdsecAppsecHost: crowdsec:7422
+          crowdsecAppsecFailureBlock: false
+          crowdsecAppsecUnreachableBlock: false
+          crowdsecAppsecUnreadableBodyBlock: false
+          crowdsecLapiHost: crowdsec:8080
+          crowdsecLapiScheme: http
+          crowdsecLapiKeyFile: "/run/secrets/crowdsec_bouncer_lapi_key"
+          crowdsecMode: stream
+          forwardedHeadersTrustedIPs:
+            - "192.168.0.0/16" # LAN
+            - "127.0.0.1/32"
+          clientTrustedIPs:
+            - "192.168.0.0/16" # skip AppSec entirely for LAN
+            - "FAMILY_SITE_IP/32"
+
+    security-headers:
+      headers:
+        accessControlMaxAge: 86400
+        addVaryHeader: true
+        stsSeconds: 63072000
+        stsIncludeSubdomains: true
+        customFrameOptionsValue: SAMEORIGIN
+        forceSTSHeader: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        permissionsPolicy: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), accelerometer=(), gyroscope=(), magnetometer=(), midi=()"
+        customResponseHeaders:
+          X-Robots-Tag: "none,noarchive,nosnippet,notranslate,noimageindex,noindex,nofollow" # disable search engines from indexing home server
+          Server: "" # hide server info from visitors
+          X-Powered-By: ""
+          # Content-Security-Policy: "default-src 'self'; script-src 'self'; img-src 'self' data:; style-src 'self';" #TODO
+          # Content-Security-Policy: "default-src 'self'; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests; block-all-mixed-content" #TODO
+        customRequestHeaders:
+          X-Forwarded-Proto: https
+
+    rate-limit:
+      rateLimit:
+        average: 300
+        burst: 500
+        period: 1s
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+    rate-limit-stream:
+      rateLimit:
+        average: 1000
+        burst: 2000
+        period: 1s
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+    default-chain:
+      chain:
+        middlewares:
+          - crowdsec
+          - security-headers
+          - rate-limit
+          - compress
+
+    stream-chain:
+      chain:
+        middlewares:
+          - crowdsec
+          - security-headers
+          - rate-limit-stream
+
+  serversTransports:
+    jellyfin-transport:
+      forwardingTimeouts:
+        dialTimeout: "30s"
+        responseHeaderTimeout: "120s"
+        idleConnTimeout: "90s"
+      maxIdleConnsPerHost: 100
+
+    proxmox-transport:
+      insecureSkipVerify: true # Proxmox uses a self-signed cert; scoped here instead of globally

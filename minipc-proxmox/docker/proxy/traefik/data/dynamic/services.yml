@@ -1,0 +1,41 @@
+http:
+  services:
+    homeassistant:
+      loadBalancer:
+        servers:
+          - url: "http://HOMEASSISTANT_IP:8123"
+    proxmox:
+      loadBalancer:
+        servers:
+          - url: "https://PROXMOX_IP:8006"
+        serversTransport: proxmox-transport
+        passHostHeader: true
+    jellyfin:
+      loadBalancer:
+        servers:
+          - url: "http://NAS_IP:8096"
+        serversTransport: jellyfin-transport
+        passHostHeader: true
+        responseForwarding:
+          flushInterval: "100ms"
+    nextcloud:
+      loadBalancer:
+        servers:
+          - url: "http://NAS_IP:11000"
+        passHostHeader: true
+    muxarr:
+      loadBalancer:
+        servers:
+          - url: "http://NAS_IP:8183"
+    romm:
+      loadBalancer:
+        servers:
+          - url: "http://NAS_IP:9980"
+    navidrome:
+      loadBalancer:
+        servers:
+          - url: "http://NAS_IP:4533"    
+    calibre:
+      loadBalancer:
+        servers:
+          - url: "http://NAS_IP:8083"

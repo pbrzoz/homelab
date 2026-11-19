@@ -1,0 +1,197 @@
+services:
+  rclone:
+    image: rclone/rclone:1.75.2
+    container_name: rclone-dashboard
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL                 # rclone needs no Linux capabilities (port 5572 is unprivileged)
+    read_only: true         # only the mounted folders below are writable
+    tmpfs:
+      - /tmp:size=64m
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1"
+          pids: 128
+    command: >-
+      rcd --rc-web-gui --rc-addr 0.0.0.0:5572
+      --rc-web-gui-no-open-browser
+      --rc-htpasswd /config/rclone/htpasswd
+      -v --checksum --transfers=4 --checkers=4 --contimeout=60s --timeout=300s
+      --retries=3 --low-level-retries=10
+    volumes:
+      - ./data/config:/config/rclone #location of your rclone config file (i.e., where the remote and secrets are stored)
+      - ./data/cache:/root/.cache/rclone
+    environment:
+      - TZ=${TIMEZONE}
+    networks:
+     - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rclone-dashboard.entrypoints=https"
+      - "traefik.http.routers.rclone-dashboard.middlewares=local-whitelist@file,default-chain@file"
+      - "traefik.http.services.rclone-dashboard.loadbalancer.server.port=5572"     
+
+  backup:
+    image: mazzolino/restic
+    restart: unless-stopped
+    container_name: restic-backup
+    hostname: docker
+    environment:
+      RUN_ON_STARTUP: "false"
+      BACKUP_CRON: "0 30 4,16 * * *" # every day at 04:30 and 16:30 (sec min hour day month weekday)
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY}
+      RESTIC_PASSWORD_FILE: /run/secrets/restic_password
+      RESTIC_BACKUP_SOURCES: /mnt/volumes
+      RESTIC_COMPRESSION: auto
+      RCLONE_DRIVE_USE_TRASH: "false"
+      # Excluded paths:
+      #   authentik/data/database                  - raw Postgres files; copying them while the server runs gives an unusable backup.
+      #                                              Authentik is backed up via the pg_dump in PRE_COMMANDS (authentik/dumps/authentik.dump).
+      #   observability/prometheus/data            - metrics history, not needed to restore services.
+      #   observability/loki/data                  - log history, not needed to restore services.
+      #   your_spotify_db/diagnostic.data          - MongoDB's internal diagnostics, not needed to restore the database.
+      RESTIC_BACKUP_ARGS: >-
+        --tag restic-docker
+        --verbose
+        --exclude /mnt/volumes/authentik/data/database
+        --exclude /mnt/volumes/observability/prometheus/data
+        --exclude /mnt/volumes/observability/loki/data
+        --exclude /mnt/volumes/your_spotify/data/your_spotify_db/diagnostic.data
+      RESTIC_FORGET_ARGS: >-
+        --keep-last 10
+        --keep-daily 7
+        --keep-weekly 5
+        --keep-monthly 12
+      PRE_COMMANDS: |-
+        docker exec authentik_postgresql sh -c 'pg_dump -U "$${POSTGRES_USER}" -Fc -Z0 "$${POSTGRES_DB}"' > /dumps/authentik.dump.tmp
+        mv /dumps/authentik.dump.tmp /dumps/authentik.dump
+        chmod 600 /dumps/authentik.dump
+        docker stop vaultwarden
+        docker stop your_spotify-server-1
+        docker stop your_spotify-web-1
+        docker stop mongo
+        docker stop karakeep
+        docker stop karakeep-meilisearch
+        docker stop mealie
+        docker stop grafana
+        docker stop dockhand
+      POST_COMMANDS_EXIT: |-
+        docker start vaultwarden
+        docker start mongo
+        docker start your_spotify_server
+        docker start your_spotify_client
+        docker start karakeep-meilisearch
+        docker start karakeep
+        docker start mealie
+        docker start grafana
+        docker start dockhand
+        rm -f /run/lock/backup.lock
+      # ^ rm backup.lock: if a pre-command fails the script exits early and leaves the lock, so every later backup would be skipped
+      TZ: ${TIMEZONE}
+    volumes:
+      # Raw socket, not a proxy: "docker exec" for pg_dump needs proxy rights that are as powerful as the socket itself
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${TMP_RESTORE_PATH}:/tmp-for-restore
+      - ${VOLUMES_PATH}:/mnt/volumes:ro
+      - ${VOLUMES_PATH}/authentik/dumps:/dumps
+      - ./data/config:/root/.config/rclone
+      - ./data/restic-cache/backup:/root/.cache/restic   # persistent restic cache (faster runs)
+    secrets:
+      - restic_password
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE        # write into/delete from restored folders owned by others (without it, a second restore or cleanup fails with "permission denied")
+      - CHOWN               # give restored files their original owner
+      - FOWNER              # set modes/times on restored files owned by others
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m      # restic stages pack files here before uploading
+      - /run/lock:size=1m   # backup.lock
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "2"
+          pids: 256
+
+  prune:
+    image: mazzolino/restic
+    restart: unless-stopped
+    container_name: restic-prune
+    hostname: docker
+    environment:
+      RUN_ON_STARTUP: "false"
+      SKIP_INIT: true
+      RCLONE_DRIVE_USE_TRASH: "false"
+      PRUNE_CRON: "0 0 2 * * 0" # every Sunday at 02:00 (sec min hour day month weekday)
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY}
+      RESTIC_PASSWORD_FILE: /run/secrets/restic_password
+      TZ: ${TIMEZONE}
+    volumes:
+      - ./data/config:/root/.config/rclone
+      - ./data/restic-cache/prune:/root/.cache/restic
+    secrets:
+      - restic_password
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL                 # only talks to Google Drive, reads no local data
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m      # repacked pack files are staged here
+      - /run/lock:size=1m
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1"
+          pids: 128
+
+  check:
+    image: mazzolino/restic
+    restart: unless-stopped
+    container_name: restic-check
+    hostname: docker
+    environment:
+      RUN_ON_STARTUP: "false"
+      SKIP_INIT: true
+      CHECK_CRON: "0 15 5 * * *" # every day at 05:15 (sec min hour day month weekday)
+      RESTIC_CHECK_ARGS: >-
+        --read-data-subset=10%
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY}
+      RESTIC_PASSWORD_FILE: /run/secrets/restic_password
+      TZ: ${TIMEZONE}
+    volumes:
+      - ./data/config:/root/.config/rclone
+      - ./data/restic-cache/check:/root/.cache/restic   # needed by the startup repository check
+    secrets:
+      - restic_password
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+      - /run/lock:size=1m
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1"
+          pids: 128
+
+networks:
+  proxy:
+    external: true
+
+secrets:
+  restic_password:
+    file: ./secrets/restic_password

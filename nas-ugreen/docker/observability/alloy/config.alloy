@@ -1,0 +1,64 @@
+logging {
+  level  = "warn"
+  format = "logfmt"
+}
+
+loki.write "default" {
+  endpoint {
+    url = "https://loki.DOMAIN.TLD/loki/api/v1/push"
+    basic_auth {
+      username = sys.env("LOKI_USER")
+      password = sys.env("LOKI_PASSWORD")
+    }
+  }
+  external_labels = {
+    host = "nas",
+  }
+}
+
+discovery.docker "containers" {
+  host             = "tcp://nas-dockerproxy:2375"
+  refresh_interval = "30s"
+}
+
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(nas-alloy|nas-cadvisor|nas-node-exporter|nas-dockerproxy)"
+    action        = "drop"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "stack"
+  }
+
+  rule {
+    target_label = "job"
+    replacement  = "docker"
+  }
+}
+
+loki.source.docker "containers" {
+  host             = "tcp://nas-dockerproxy:2375"
+  targets          = discovery.relabel.containers.output
+  forward_to       = [loki.process.containers.receiver]
+  refresh_interval = "30s"
+}
+
+loki.process "containers" {
+  stage.drop {
+    older_than          = "24h"
+    drop_counter_reason = "backfill_too_old"
+  }
+
+  forward_to = [loki.write.default.receiver]
+}

@@ -1,0 +1,125 @@
+#!/bin/bash
+# combustion: network
+#
+# openSUSE MicroOS first-boot configuration - docker01
+
+set -euo pipefail
+
+# Mirror everything to the console
+exec > >(exec tee -a /dev/tty0) 2>&1
+
+# ============================= settings =====================================
+# The only lines you edit. Keep the single quotes: password hashes contain "$"
+# characters, and any other quoting will let the shell eat them.
+
+TARGET_HOSTNAME='docker01'
+TIMEZONE='UTC'
+
+# Generate each of these separately with:   openssl passwd -6
+# The result is one long line beginning with $6$
+ROOT_HASH='CHANGE_ME'
+ADMIN_HASH='CHANGE_ME'
+
+# One line, the contents of your ~/.ssh/id_ed25519.pub
+SSH_KEY='CHANGE_ME'
+# ============================================================================
+
+# refuse to run half-set
+for v in ROOT_HASH ADMIN_HASH; do
+    case "${!v}" in
+        '$6$'*|'$5$'*|'$y$'*) ;;
+        *) echo "FATAL: $v is not a password hash."
+           echo "       Generate one with:  openssl passwd -6"
+           exit 1 ;;
+    esac
+done
+case "$SSH_KEY" in
+    ssh-*|ecdsa-*) ;;
+    *) echo "FATAL: SSH_KEY is not an SSH public key."
+       echo "       Paste the contents of your .pub file."
+       exit 1 ;;
+esac
+
+echo "=== combustion: $TARGET_HOSTNAME ==="
+
+# identity
+echo "$TARGET_HOSTNAME" > /etc/hostname
+ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
+
+# users
+# Root: console-only rescue account. SSH login is disabled further down.
+echo "root:$ROOT_HASH" | chpasswd -e
+
+# admin
+groupadd -f wheel
+useradd --create-home --user-group --groups wheel --shell /bin/bash admin
+echo "admin:$ADMIN_HASH" | chpasswd -e
+
+install -d -m 0755 /etc/ssh/authorized_keys.d
+printf '%s\n' "$SSH_KEY" > /etc/ssh/authorized_keys.d/admin
+chmod 0644 /etc/ssh/authorized_keys.d/admin
+
+# sudo, with a password prompt. openSUSE ships %wheel commented out.
+echo 'admin ALL=(ALL) ALL' > /etc/sudoers.d/admin
+chmod 0440 /etc/sudoers.d/admin
+
+# ssh
+mkdir -p /etc/ssh/sshd_config.d
+cat > /etc/ssh/sshd_config.d/10-hardening.conf <<'SSHD'
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+AuthenticationMethods publickey
+AllowUsers admin
+# Keys live under /etc, which combustion can definitely write and which is
+# never shadowed by a subvolume mount.
+AuthorizedKeysFile /etc/ssh/authorized_keys.d/%u .ssh/authorized_keys
+SSHD
+
+systemctl enable sshd.service
+
+# packages
+zypper --non-interactive install \
+    docker \
+    docker-compose \
+    qemu-guest-agent
+
+# services
+systemctl enable docker.service
+systemctl enable qemu-guest-agent.service
+
+usermod -aG docker admin
+
+# docker conf
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json <<'DOCKERD'
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" },
+  "live-restore": true,
+  "userland-proxy": false,
+  "default-address-pools": [
+    { "base": "172.20.0.0/14", "size": 24 }
+  ]
+}
+DOCKERD
+
+# /home and /srv are separate btrfs subvolumes. Anything written to them from
+# combustion lands inside the OS snapshot and is hidden once the real
+# subvolumes are mounted at boot. systemd-tmpfiles creates them after those
+# mounts exist, on every boot.
+cat > /etc/tmpfiles.d/docker01-dirs.conf <<'TMPFILES'
+d /home/admin 0755 admin admin -
+d /srv/docker 0755 admin admin -
+TMPFILES
+
+# auto-patching
+# Nightly transactional-update; rebootmgr reboots inside a maintenance window.
+systemctl enable transactional-update.timer || echo "WARN: transactional-update.timer missing"
+systemctl enable rebootmgr.service          || echo "WARN: rebootmgr missing"
+
+# marker
+mkdir -p /etc/issue.d
+echo "$TARGET_HOSTNAME - configured by combustion" > /etc/issue.d/combustion.issue
+
+echo "=== combustion: done ==="
